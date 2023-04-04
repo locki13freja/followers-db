@@ -1,0 +1,11 @@
+version: '3'
+
+services:
+  mongo:
+    image: mongo
+  postgresql:
+    image: postgres
+  redis:
+    image: redis
+  app:
+    build: .
