@@ -3,4 +3,4 @@ package-lock.json
 /node_modules/
 /idea/
 /json/
-.idea
+./json/
