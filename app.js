@@ -27,7 +27,7 @@ app.use((error, req, res, next) => {
 
 app.listen(PORT, () => {
   console.log(`server listening at ${PORT} port`);
-  if (booleanCronJob) {
+  if (Boolean(booleanCronJob)) {
     const job = new CronJob(
       "30 * * * *",
       schedule(artists),
