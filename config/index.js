@@ -14,5 +14,5 @@ module.exports = Object.freeze({
   instagramSelector:
     process.env.instagramSELECTOR ||
     "div > div.app-content.content > div.content-wrapper > div > div > div:nth-child(2) > div:nth-child(2) > div > div > div > div.text-center.mt-2.mt-lg-0.col-lg-5 > div > div.d-flex.flex-column.align-items-end.justify-content-between.h-100 > div.d-flex.flex-column.w-100 > div.d-flex.align-items-start.justify-content-between.w-100 > div:nth-child(1) > h4",
-  booleanCronJob: process.env.booleanCronJob || false,
+  booleanCronJob: false,
 });
