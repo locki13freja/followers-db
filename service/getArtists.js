@@ -1,80 +1,55 @@
 const UsersMongodb = require("../models/mongodbModel");
 const UsersOrmSequelize = require("../models/postgresModel");
-const {mongodbUriConnection, dbName} = require("../config");
-const mongoose = require("mongoose");
+const {dbName} = require("../config");
 const {createClient} = require("redis");
 
 class GetArtists {
-    #req;
-    #redis = createClient();
-    constructor(req) {
-        this.#req = req;
-    }
-
-    async getArtists(json) {
-        if (typeof json === "object" && json.length > 1) {
-            return await this.#getArtistsFromJson(json);
-        }
-        switch (dbName) {
-            case "mongodb":
-                 await this.#getArtistsFromMongoDb();
-                break;
-            case "postgres":
-                 await this.#getArtistsFromPostgres();
-                break;
-            case "redis":
-                 await this.#getArtistsFromRedis();
-                break;
-            default:
-                throw new Error("error");
+    async getArtists({page, limit}) {
+        try {
+            return {
+                "mongodb": () => this.#getArtistsFromMongoDb(page, limit),
+                "postgres": () => this.#getArtistsFromPostgres(page, limit),
+                "redis": () => this.#getArtistsFromRedis(page, limit)
+            }[dbName]();
+        } catch (error) {
+            throw new Error(error);
         }
     }
 
-    #getPagination() {
-
-        const {page, limit} = this.#req.query
-        const startIndex = (page - 1) * limit;
-        const endIndex = page * limit;
-        const offset=(page*limit)-limit
+    async #getArtistsFromMongoDb(page, limit) {
+        const endIndex = await (page - 1) * limit;
+        const totalCount = await UsersMongodb.countDocuments();
+        const artistsMongodDb = await UsersMongodb.find()
+            .skip(endIndex)
+            .limit(limit);
         return {
-           startIndex,
-            endIndex,
-            limit,offset
+            count: totalCount,
+            rows: artistsMongodDb
         };
     }
 
-    #getArtistsFromJson(json) {
-        const resultDataFromJson = json.slice(
-            this.#getPagination().startIndex,
-            this.#getPagination().endIndex
-        );
-        return JSON.stringify(resultDataFromJson);
-    }
-
-    #getArtistsFromMongoDb() {
-        mongoose.connect(mongodbUriConnection);
-        const resultFromMongoDb = UsersMongodb.find().skip(+this.#getPagination().startIndex).limit(+this.#getPagination().limit)
-
-        return JSON.stringify(resultFromMongoDb);
-    }
-
-    #getArtistsFromPostgres() {
+    async #getArtistsFromPostgres(page, limit) {
+        const offset = limit * (page - 1);
         const resultFromPostgres = UsersOrmSequelize().findAndCountAll({
-            limit:this.#getPagination().limit,
-            offset:this.#getPagination().offset
-        })
+            limit: limit,
+            offset: offset,
+        });
 
-
-        return JSON.stringify(resultFromPostgres);
+        return resultFromPostgres;
     }
 
-    #getArtistsFromRedis() {
-        const resultFromRedis = this.#redis.ZRANGE(
-            this.#getPagination().startIndex,
-            this.#getPagination().endIndex
-        );
-        return JSON.stringify(resultFromRedis);
+    async #getArtistsFromRedis(page, limit) {
+        const redis = await createClient();
+        await redis.connect();
+        const startIndex = await (page - 1) * limit;
+        const endIndex = await (page) * limit;
+        const totalCount = await redis.LLEN('users');
+        const resultFromRedis = await redis.LRANGE('users', startIndex, endIndex);
+        return {
+            count: totalCount,
+            resultFromRedis: resultFromRedis
+        };
     }
 }
 
-module.exports=GetArtists
+module.exports = new GetArtists();
