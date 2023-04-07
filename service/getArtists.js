@@ -7,9 +7,9 @@ class GetArtists {
     async getArtists({page, limit}) {
         try {
             return {
-                "mongodb": () => this.#getArtistsFromMongoDb(page, limit),
-                "postgres": () => this.#getArtistsFromPostgres(page, limit),
-                "redis": () => this.#getArtistsFromRedis(page, limit)
+                mongodb: () => this.#getArtistsFromMongoDb(page, limit),
+                postgres: () => this.#getArtistsFromPostgres(page, limit),
+                redis: () => this.#getArtistsFromRedis(page, limit),
             }[dbName]();
         } catch (error) {
             throw new Error(error);
@@ -17,14 +17,20 @@ class GetArtists {
     }
 
     async #getArtistsFromMongoDb(page, limit) {
-        const endIndex = await (page - 1) * limit;
-        const totalCount = await UsersMongodb.countDocuments();
-        const artistsMongodDb = await UsersMongodb.find()
-            .skip(endIndex)
-            .limit(limit);
+        const endIndex = (page - 1) * limit;
+        // const totalCount = await UsersMongodb.countDocuments();
+        // const artistsMongodDb = await UsersMongodb.find()
+        //     .skip(endIndex)
+        //     .limit(limit);
+
+        const [totalCount, artistsMongodDb] = await Promise.all([
+            UsersMongodb.countDocuments(),
+            UsersMongodb.find().skip(endIndex).limit(limit),
+        ]);
+
         return {
             count: totalCount,
-            rows: artistsMongodDb
+            rows: artistsMongodDb,
         };
     }
 
@@ -41,13 +47,18 @@ class GetArtists {
     async #getArtistsFromRedis(page, limit) {
         const redis = await createClient();
         await redis.connect();
-        const startIndex = await (page - 1) * limit;
-        const endIndex = await (page) * limit;
-        const totalCount = await redis.LLEN('users');
-        const resultFromRedis = await redis.LRANGE('users', startIndex, endIndex);
+        const startIndex = (await (page - 1)) * limit;
+        const endIndex = (await page) * limit;
+
+
+        const [totalCount, resultFromRedis] = await Promise.all([
+            redis.LLEN("users"),
+            redis.LRANGE("users", startIndex, endIndex),
+        ]);
+
         return {
             count: totalCount,
-            resultFromRedis: resultFromRedis
+            resultFromRedis: resultFromRedis,
         };
     }
 }

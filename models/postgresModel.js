@@ -14,7 +14,8 @@ module.exports = () => {
         id: {
             type: DataTypes.INTEGER,
             primaryKey: true,
-            autoIncrement: true
+            autoIncrement: true,
+            default: 0
         },
         username: {
             type: DataTypes.STRING,
