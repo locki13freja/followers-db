@@ -1,84 +1,66 @@
 const UsersMongodb = require("../models/mongodbModel");
 const UsersOrmSequelize = require("../models/postgresModel");
-const { mongodbUriConnection, dbName, limit } = require("../config");
-const mongoose = require("mongoose");
-const { createClient } = require("redis");
+const {dbName} = require("../config");
+const {createClient} = require("redis");
 
 class GetArtists {
-  #req;
-  #res;
-  #redis = createClient();
-  // comment
-
-  constructor(req, res) {
-    mongoose.connect(mongodbUriConnection);
-    this.#req = req;
-    this.#res = res;
-  }
-
-  getArtists(json) {
-    if (typeof json === "object" && json.length > 1) {
-      return this.#res.send(this.#getArtistsFromJson(json));
+    async getArtists({page, limit}) {
+        try {
+            return {
+                mongodb: () => this.#getArtistsFromMongoDb(page, limit),
+                postgres: () => this.#getArtistsFromPostgres(page, limit),
+                redis: () => this.#getArtistsFromRedis(page, limit),
+            }[dbName]();
+        } catch (error) {
+            throw new Error(error);
+        }
     }
-    switch (dbName) {
-      case "mongodb":
-        return this.#res.send(this.#getArtistsFromMongoDb());
-        break;
-      case "postgres":
-        return this.#res.send(this.#getArtistsFromPostgres());
-        break;
-      case "redis":
-        return this.#res.send(this.#getArtistsFromRedis());
-        break;
-      default:
-        throw new Error("error");
+
+    async #getArtistsFromMongoDb(page, limit) {
+        const endIndex = (page - 1) * limit;
+        // const totalCount = await UsersMongodb.countDocuments();
+        // const artistsMongodDb = await UsersMongodb.find()
+        //     .skip(endIndex)
+        //     .limit(limit);
+
+        const [totalCount, artistsMongodDb] = await Promise.all([
+            UsersMongodb.countDocuments(),
+            UsersMongodb.find().skip(endIndex).limit(limit),
+        ]);
+
+        return {
+            count: totalCount,
+            rows: artistsMongodDb,
+        };
     }
-  }
 
-  #getPagination() {
-    const page = parseInt(this.#req.query.page) || 1;
+    async #getArtistsFromPostgres(page, limit) {
+        const offset = limit * (page - 1);
+        const resultFromPostgres = UsersOrmSequelize().findAndCountAll({
+            limit: limit,
+            offset: offset,
+        });
 
-    const startIndex = (page - 1) * limit;
-    const endIndex = page * limit;
+        return resultFromPostgres;
+    }
 
-    return {
-      startIndex,
-      endIndex,
-    };
-  }
+    async #getArtistsFromRedis(page, limit) {
+        const redis = await createClient();
+        await redis.connect();
+        const startIndex = (await (page - 1)) * limit;
+        const endIndex = (await page) * limit;
 
-  #getArtistsFromJson(json) {
-    const resultDataFromJson = json.slice(
-      this.#getPagination().startIndex,
-      this.#getPagination().endIndex
-    );
-    return JSON.stringify(resultDataFromJson);
-  }
 
-  #getArtistsFromMongoDb() {
-    const resultFromMongoDb = UsersMongodb.find().slice(
-      this.#getPagination().startIndex,
-      this.#getPagination().endIndex
-    );
+        const [totalCount, resultFromRedis] = await Promise.all([
+            redis.LLEN("users"),
+            redis.LRANGE("users", startIndex, endIndex),
+        ]);
 
-    return JSON.stringify(resultFromMongoDb);
-  }
-
-  #getArtistsFromPostgres() {
-    const resultFromPostgres = UsersOrmSequelize()
-      .findAll()
-      .slice(this.#getPagination().startIndex, this.#getPagination().endIndex);
-
-    return JSON.stringify(resultFromPostgres);
-  }
-
-  #getArtistsFromRedis() {
-    const resultFromRedis = this.#redis.ZRANGE(
-      this.#getPagination().startIndex,
-      this.#getPagination().endIndex
-    );
-    return JSON.stringify(resultFromRedis);
-  }
+        return {
+            count: totalCount,
+            resultFromRedis: resultFromRedis,
+        };
+    }
 }
 
-module.exports = GetArtists;
+module.exports = new GetArtists();

@@ -1,116 +1,72 @@
 const UsersMongodb = require("../models/mongodbModel");
 const UsersOrmSequelize = require("../models/postgresModel");
 const mongoose = require("mongoose");
-const { createClient } = require("redis");
-const { mongodbUriConnection } = require("../config");
+const {createClient} = require("redis");
+const {mongodbUriConnection} = require("../config");
 
 class AddToDb {
-  #redis = createClient();
-  #postgres = UsersOrmSequelize();
-  constructor() {
-    mongoose.connect(mongodbUriConnection);
-  }
+    #postgres = UsersOrmSequelize();
 
-  async addToDb(dbName, userData) {
-    try {
-      switch (dbName) {
-        case "mongodb":
-          await this.#addToMongodb(userData);
-          break;
-        case "postgres":
-          await this.#addToPostgres(userData);
-          break;
-        case "redis":
-          await this.#addToRedis(userData);
-          break;
-        case "mongodb + redis":
-          await this.#addToMongodb(userData);
-          await this.#addToRedis(userData);
-          break;
-        case "mongdb + postgres":
-          await this.#addToMongodb(userData);
-          await this.#addToPostgres(userData);
-          break;
-        case "postgres + redis":
-          await this.#addToPostgres(userData);
-          await this.#addToRedis(userData);
-          break;
-        case "postgres + mongodb + redis":
-          await this.#addToMongodb(userData);
-          await this.#addToPostgres(userData);
-          await this.#addToRedis(userData);
-          break;
-        default:
-          throw new Error("dbName incorrect");
-      }
-    } catch (error) {
-      throw new Error(error);
+    constructor() {
+        mongoose.set('debug', true);
+        mongoose.connect(mongodbUriConnection);
     }
-  }
 
-  async #addToMongodb(data) {
-    try {
-      const {
-        username,
-        instagramSubscribers,
-        twitterSubscribers,
-        facebookSubscribers,
-      } = await data;
-
-      const usersMongodb = await new UsersMongodb({
-        username: username,
-        instagramSubscribers: instagramSubscribers,
-        twitterSubscribers: twitterSubscribers,
-        facebookSubscribers: facebookSubscribers,
-      });
-      await usersMongodb.save()
-    } catch (error) {
-      throw new Error(error);
+    async addToDb(dbName, userData) {
+        return {
+            mongodb: () => this.#addToMongodb(userData),
+            postgres: () => this.#addToPostgres(userData),
+            redis: () => this.#addToRedis(userData),
+        }[dbName]();
     }
-  }
 
-  async #addToPostgres(data) {
-    try {
-      const {
-        username,
-        instagramSubscribers,
-        twitterSubscribers,
-        facebookSubscribers,
-      } = data;
-      const usersPostgres = await this.#postgres
-        .create({
-          username,
-          instagramSubscribers,
-          twitterSubscribers,
-          facebookSubscribers,
-        })
-    } catch (error) {
-      throw new Error(error);
+    async #addToMongodb(data) {
+        const {
+            username, instagramSubscribers, twitterSubscribers, facebookSubscribers,
+        } = await data;
+
+        let cashedUsername = await UsersMongodb.findOneAndUpdate({username: username}, {
+            instagramSubscribers: instagramSubscribers,
+            twitterSubscribers: twitterSubscribers,
+            facebookSubscribers: facebookSubscribers,
+        });
+
+        if (!Boolean(cashedUsername)) {
+            const usersMongodb = new UsersMongodb({
+                username: username,
+                instagramSubscribers: instagramSubscribers,
+                twitterSubscribers: twitterSubscribers,
+                facebookSubscribers: facebookSubscribers,
+            });
+            await usersMongodb.save();
+        }
     }
-  }
 
-  async #addToRedis(data) {
-    try {
-      const {
-        username,
-        instagramSubscribers,
-        twitterSubscribers,
-        facebookSubscribers,
-      } = data;
+    async #addToPostgres(data) {
+        const {
+            username, instagramSubscribers, twitterSubscribers, facebookSubscribers,
+        } = data;
 
-      await this.#redis
-        .connect()
-      await this.#redis
-        .LPUSH(
-          username,
-          instagramSubscribers,
-          twitterSubscribers,
-          facebookSubscribers
-        )
-    } catch (error) {
-      throw new Error(error);
+        await this.#postgres.findOne({where: {username: username}}).then((result) => {
+            if (result) {
+                return result.update({
+                    username, instagramSubscribers, twitterSubscribers, facebookSubscribers,
+                }, {where: {username: username}});
+            }
+            return this.#postgres.create({
+                username, instagramSubscribers, twitterSubscribers, facebookSubscribers,
+            });
+        });
     }
-  }
+
+    async #addToRedis(data) {
+        await data;
+        const redis = await createClient();
+        await redis.connect();
+        const redisResult = await redis.GET();
+        // await redis.RPUSH('users', JSON.stringify(data));
+        console.log(redisResult);
+    }
 }
 
 module.exports = new AddToDb();
